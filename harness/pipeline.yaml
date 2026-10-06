@@ -1,0 +1,183 @@
+pipeline:
+  name: CI-CD-Demo
+  identifier: CICDDemo
+  projectIdentifier: platform
+  orgIdentifier: engineering
+  tags:
+    team: platform
+    application: ci-cd-demo
+  properties:
+    ci:
+      codebase:
+        connectorRef: github
+        repoName: ci-cd-demo
+        build: <+input>
+
+  stages:
+    - stage:
+        name: Continuous Integration
+        identifier: CI
+        type: CI
+        spec:
+          cloneCodebase: true
+          execution:
+            steps:
+              - step:
+                  name: Install Dependencies
+                  identifier: Install
+                  type: Run
+                  spec:
+                    shell: Bash
+                    command: |
+                      python --version
+                      pip install -r requirements.txt
+                      pip install -r requirements-dev.txt
+
+              - step:
+                  name: Lint
+                  identifier: Lint
+                  type: Run
+                  spec:
+                    shell: Bash
+                    command: |
+                      ruff check .
+                      ruff format --check .
+
+              - step:
+                  name: Typecheck
+                  identifier: Typecheck
+                  type: Run
+                  spec:
+                    shell: Bash
+                    command: mypy app
+
+              - step:
+                  name: Tests
+                  identifier: Tests
+                  type: Run
+                  spec:
+                    shell: Bash
+                    command: pytest -v
+
+              - step:
+                  name: Dependency Security
+                  identifier: Security
+                  type: Run
+                  spec:
+                    shell: Bash
+                    command: |
+                      pip install pip-audit
+                      pip-audit
+
+              - step:
+                  name: Build Container
+                  identifier: DockerBuild
+                  type: Run
+                  spec:
+                    shell: Bash
+                    command: |
+                      docker build -t ci-cd-demo:${DRONE_BUILD_NUMBER} .
+
+    - stage:
+        name: Deploy Staging
+        identifier: DeployStaging
+        type: Deployment
+        spec:
+          deploymentType: Kubernetes
+          service:
+            serviceRef: ci_cd_demo
+          environment:
+            environmentRef: staging
+            deployToAll: false
+            infrastructureDefinitions:
+              - identifier: staging
+          execution:
+            steps:
+              - step:
+                  name: Deploy
+                  identifier: Deploy
+                  type: K8sRollingDeploy
+                  timeout: 10m
+                  spec:
+                    skipDryRun: false
+                    pruningEnabled: false
+
+    - stage:
+        name: Verify Staging
+        identifier: VerifyStaging
+        type: Custom
+        spec:
+          execution:
+            steps:
+              - step:
+                  name: Health Check
+                  identifier: HealthCheck
+                  type: ShellScript
+                  spec:
+                    shell: Bash
+                    source:
+                      type: Inline
+                      spec:
+                        script: echo "Running health check"
+
+    - stage:
+        name: Production Approval
+        identifier: ProductionApproval
+        type: Approval
+        spec:
+          execution:
+            steps:
+              - step:
+                  name: Manual Approval
+                  identifier: ManualApproval
+                  type: HarnessApproval
+                  spec:
+                    approvalMessage: Approve deployment to production?
+                    includePipelineExecutionHistory: true
+                    approvers:
+                      userGroups:
+                        - platform-engineers
+                    minimumCount: 1
+                    excludePipelineExecutions:
+                      olderThan: 7d
+
+    - stage:
+        name: Deploy Production
+        identifier: DeployProduction
+        type: Deployment
+        spec:
+          deploymentType: Kubernetes
+          service:
+            serviceRef: ci_cd_demo
+          environment:
+            environmentRef: production
+            deployToAll: false
+            infrastructureDefinitions:
+              - identifier: production
+          execution:
+            steps:
+              - step:
+                  name: Rolling Deployment
+                  identifier: RollingDeployment
+                  type: K8sRollingDeploy
+                  timeout: 15m
+                  spec:
+                    skipDryRun: false
+
+    - stage:
+        name: Production Verification
+        identifier: ProductionVerification
+        type: Custom
+        spec:
+          execution:
+            steps:
+              - step:
+                  name: Health Check
+                  identifier: ProductionHealth
+                  type: ShellScript
+                  spec:
+                    shell: Bash
+                    source:
+                      type: Inline
+                      spec:
+                        script: echo "Checking production"
