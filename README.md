@@ -322,6 +322,11 @@ Only recognised chatbots are accepted:
   `{"claude": "<key>", "internal-slack-bot": "<key>"}`. Without this, `chatbot_id`
   is self-declared and anyone holding a dispatch token could impersonate a bot.
 
+Attribute rules live in the same allowlist file: `required_attributes`
+rejects a payload where any listed key is absent or empty, and
+`forbidden_attributes` rejects one where any listed key is present. Both can
+be set globally or overridden per chatbot.
+
 Setup and security notes:
 
 - Send the dispatch with a fine-grained PAT or GitHub App token with

@@ -1,4 +1,6 @@
 {
+  "required_attributes": ["task_id", "description", "session_id", "user_handle"],
+  "forbidden_attributes": [],
   "chatbots": {
     "claude": {"allowed_path_prefixes": ["src/", "utils/", "tests/", "docs/"]},
     "internal-slack-bot": {"allowed_path_prefixes": ["docs/"]}

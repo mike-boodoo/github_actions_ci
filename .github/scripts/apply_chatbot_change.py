@@ -34,6 +34,8 @@ def verify_chatbot(chatbot_id: str, file_path: str, task_id: str, content: str) 
     if entry is None:
         fail(f"chatbot_id '{chatbot_id}' is not in the allowlist")
 
+    check_attributes(entry, allowlist)
+
     prefixes = entry.get("allowed_path_prefixes", [])
     if prefixes and not file_path.startswith(tuple(prefixes)):
         fail(f"chatbot '{chatbot_id}' may not write to {file_path}")
@@ -47,6 +49,23 @@ def verify_chatbot(chatbot_id: str, file_path: str, task_id: str, content: str) 
     ).hexdigest()
     if not hmac.compare_digest(expected, os.environ.get("SIGNATURE", "")):
         fail("invalid payload signature")
+
+
+def check_attributes(entry: dict, allowlist: dict) -> None:
+    """Reject payloads missing a required attribute or carrying a forbidden one."""
+    payload = json.loads(os.environ.get("PAYLOAD_JSON") or "{}")
+    required = entry.get(
+        "required_attributes", allowlist.get("required_attributes", [])
+    )
+    forbidden = entry.get(
+        "forbidden_attributes", allowlist.get("forbidden_attributes", [])
+    )
+    missing = [a for a in required if payload.get(a) in (None, "")]
+    if missing:
+        fail(f"payload is missing required attribute(s): {', '.join(missing)}")
+    present = [a for a in forbidden if a in payload]
+    if present:
+        fail(f"payload contains forbidden attribute(s): {', '.join(present)}")
 
 
 def main() -> None:

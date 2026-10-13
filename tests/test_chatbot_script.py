@@ -21,7 +21,8 @@ def sign(task_id: str, path: str, content: str, key: str = KEY) -> str:
 
 def run(tmp_path, **overrides):
     (tmp_path / ".github").mkdir(exist_ok=True)
-    (tmp_path / ".github" / "chatbot-allowlist.json").write_text(ALLOWLIST.read_text())
+    allowlist = overrides.pop("_ALLOWLIST", None) or ALLOWLIST.read_text()
+    (tmp_path / ".github" / "chatbot-allowlist.json").write_text(allowlist)
     content = base64.b64encode(b"print(1)\n").decode()
     env = {
         **os.environ,
@@ -34,6 +35,14 @@ def run(tmp_path, **overrides):
         "CHATBOT_KEYS": json.dumps({"claude": KEY, "internal-slack-bot": KEY}),
         "GITHUB_OUTPUT": str(tmp_path / "out"),
     }
+    env["PAYLOAD_JSON"] = json.dumps(
+        {
+            "task_id": "t-1",
+            "description": "d",
+            "session_id": "s",
+            "user_handle": "alice",
+        }
+    )
     env["SIGNATURE"] = sign(env["TASK_ID"], env["FILE_PATH"], env["FILE_CONTENT"])
     env.update(overrides)
     return subprocess.run(
@@ -80,3 +89,34 @@ def test_workflow_files_blocked(tmp_path):
 
 def test_path_traversal_blocked(tmp_path):
     assert run(tmp_path, FILE_PATH="../x").returncode == 1
+
+
+def test_missing_required_attribute_rejected(tmp_path):
+    payload = json.dumps({"task_id": "t-1", "description": "d", "user_handle": "a"})
+    r = run(tmp_path, PAYLOAD_JSON=payload)
+    assert r.returncode == 1 and "session_id" in r.stdout
+
+
+def test_empty_required_attribute_rejected(tmp_path):
+    payload = json.dumps(
+        {"task_id": "t-1", "description": "", "session_id": "s", "user_handle": "a"}
+    )
+    r = run(tmp_path, PAYLOAD_JSON=payload)
+    assert r.returncode == 1 and "description" in r.stdout
+
+
+def test_forbidden_attribute_rejected(tmp_path):
+    cfg = json.loads(ALLOWLIST.read_text())
+    cfg["forbidden_attributes"] = ["skip_review"]
+    # run() overwrites the allowlist, so patch after via env-independent copy
+    payload = json.dumps(
+        {
+            "task_id": "t-1",
+            "description": "d",
+            "session_id": "s",
+            "user_handle": "a",
+            "skip_review": True,
+        }
+    )
+    r = run(tmp_path, PAYLOAD_JSON=payload, _ALLOWLIST=json.dumps(cfg))
+    assert r.returncode == 1 and "forbidden" in r.stdout
