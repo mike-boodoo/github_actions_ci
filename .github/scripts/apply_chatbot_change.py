@@ -40,7 +40,10 @@ def main() -> None:
         fail("chatbot changes to .github/ and .git/ are not allowed")
 
     if encoding == "base64":
-        data = base64.b64decode(content, validate=True)
+        try:
+            data = base64.b64decode(content, validate=True)
+        except ValueError:
+            fail("file_content is not valid base64")
     elif encoding == "raw":
         data = content.encode()
     else:
