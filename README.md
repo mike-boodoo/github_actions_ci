@@ -311,6 +311,17 @@ Payload (`client_payload`): `task_id`, `file_path`, `file_content`,
 `chatbot_id`, `session_id`, `user_handle`, `interface_source`.
 See `scripts/trigger_chatbot_update.py` for a sender example.
 
+Only recognised chatbots are accepted:
+
+- `.github/chatbot-allowlist.json` lists permitted `chatbot_id`s and the path
+  prefixes each may write to. Unknown IDs are rejected. Chatbots cannot edit
+  this file because `.github/` is blocked.
+- Each payload must include `signature`: hex HMAC-SHA256 of
+  `task_id\nfile_path\nfile_content` (content exactly as sent), keyed with that
+  chatbot's secret. Store the keys in one repo secret `CHATBOT_KEYS`, e.g.
+  `{"claude": "<key>", "internal-slack-bot": "<key>"}`. Without this, `chatbot_id`
+  is self-declared and anyone holding a dispatch token could impersonate a bot.
+
 Setup and security notes:
 
 - Send the dispatch with a fine-grained PAT or GitHub App token with

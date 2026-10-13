@@ -1,0 +1,6 @@
+{
+  "chatbots": {
+    "claude": {"allowed_path_prefixes": ["src/", "utils/", "tests/", "docs/"]},
+    "internal-slack-bot": {"allowed_path_prefixes": ["docs/"]}
+  }
+}

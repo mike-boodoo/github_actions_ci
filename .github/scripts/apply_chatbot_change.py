@@ -5,6 +5,9 @@ step outputs (branch, author_name, author_email) via $GITHUB_OUTPUT.
 """
 
 import base64
+import hashlib
+import hmac
+import json
 import os
 import re
 import sys
@@ -18,6 +21,32 @@ HANDLE_RE = re.compile(r"[^A-Za-z0-9._-]")
 def fail(msg: str) -> None:
     print(f"::error::{msg}")
     sys.exit(1)
+
+
+def signing_message(task_id: str, file_path: str, content: str) -> bytes:
+    return "\n".join([task_id, file_path, content]).encode()
+
+
+def verify_chatbot(chatbot_id: str, file_path: str, task_id: str, content: str) -> None:
+    """Only accept allowlisted chatbots that sign the payload with their key."""
+    allowlist = json.loads(Path(".github/chatbot-allowlist.json").read_text())
+    entry = allowlist.get("chatbots", {}).get(chatbot_id)
+    if entry is None:
+        fail(f"chatbot_id '{chatbot_id}' is not in the allowlist")
+
+    prefixes = entry.get("allowed_path_prefixes", [])
+    if prefixes and not file_path.startswith(tuple(prefixes)):
+        fail(f"chatbot '{chatbot_id}' may not write to {file_path}")
+
+    keys = json.loads(os.environ.get("CHATBOT_KEYS") or "{}")
+    key = keys.get(chatbot_id)
+    if not key:
+        fail(f"no signing key configured for chatbot '{chatbot_id}'")
+    expected = hmac.new(
+        key.encode(), signing_message(task_id, file_path, content), hashlib.sha256
+    ).hexdigest()
+    if not hmac.compare_digest(expected, os.environ.get("SIGNATURE", "")):
+        fail("invalid payload signature")
 
 
 def main() -> None:
@@ -36,6 +65,7 @@ def main() -> None:
     if root not in target.parents:
         fail("file_path must stay inside the repository")
     rel = target.relative_to(root).as_posix()
+    verify_chatbot(os.environ.get("CHATBOT_ID", ""), rel, task_id, content)
     if rel.startswith(BLOCKED_PREFIXES):
         fail("chatbot changes to .github/ and .git/ are not allowed")
 
@@ -52,7 +82,7 @@ def main() -> None:
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_bytes(data)
 
-    bot = HANDLE_RE.sub("-", os.environ.get("CHATBOT_ID") or "chatbot")
+    bot = HANDLE_RE.sub("-", os.environ["CHATBOT_ID"])
     user = HANDLE_RE.sub("-", os.environ.get("USER_HANDLE") or "unknown")
     with open(os.environ["GITHUB_OUTPUT"], "a") as out:
         out.write(f"branch=chatbot/feature-{task_id}\n")

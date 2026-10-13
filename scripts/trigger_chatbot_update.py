@@ -1,10 +1,12 @@
 """Example chatbot backend call that triggers the chatbot-code-update workflow.
 
 Usage:
-    GITHUB_PAT=... python scripts/trigger_chatbot_update.py OWNER/REPO
+    GITHUB_PAT=... CHATBOT_KEY=... python scripts/trigger_chatbot_update.py OWNER/REPO
 """
 
 import base64
+import hashlib
+import hmac
 import os
 import sys
 
@@ -26,13 +28,22 @@ def dispatch(repo: str, payload: dict) -> int:
 
 
 if __name__ == "__main__":
+    task_id, file_path = "t-1082", "utils/parser.py"
     code = "def parse_data(raw):\n    return raw.strip()\n"
+    content = base64.b64encode(code.encode()).decode()
+    # Sign the *encoded* content exactly as it appears in the payload.
+    signature = hmac.new(
+        os.environ["CHATBOT_KEY"].encode(),
+        "\n".join([task_id, file_path, content]).encode(),
+        hashlib.sha256,
+    ).hexdigest()
     status = dispatch(
         sys.argv[1],
         {
-            "task_id": "t-1082",
-            "file_path": "utils/parser.py",
-            "file_content": base64.b64encode(code.encode()).decode(),
+            "task_id": task_id,
+            "file_path": file_path,
+            "file_content": content,
+            "signature": signature,
             "content_encoding": "base64",
             "description": "Added whitespace parser helper.",
             "chatbot_id": "claude",
