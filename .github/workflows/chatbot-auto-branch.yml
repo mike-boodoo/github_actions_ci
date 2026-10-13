@@ -1,0 +1,84 @@
+name: Chatbot Auto-Branch & PR
+
+on:
+  repository_dispatch:
+    types: [chatbot-code-update]
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: chatbot-${{ github.event.client_payload.task_id }}
+  cancel-in-progress: false
+
+jobs:
+  create_branch:
+    runs-on: ubuntu-latest
+    env:
+      # Payload values are passed via env vars, never interpolated into
+      # shell scripts, to avoid script injection from untrusted input.
+      TASK_ID: ${{ github.event.client_payload.task_id }}
+      FILE_PATH: ${{ github.event.client_payload.file_path }}
+      FILE_CONTENT: ${{ github.event.client_payload.file_content }}
+      CONTENT_ENCODING: ${{ github.event.client_payload.content_encoding }}
+      DESCRIPTION: ${{ github.event.client_payload.description }}
+      CHATBOT_ID: ${{ github.event.client_payload.chatbot_id }}
+      SESSION_ID: ${{ github.event.client_payload.session_id }}
+      USER_HANDLE: ${{ github.event.client_payload.user_handle }}
+      INTERFACE_SOURCE: ${{ github.event.client_payload.interface_source }}
+      BASE_BRANCH: ${{ github.event.repository.default_branch }}
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Log chatbot metadata
+        run: |
+          echo "Chatbot:   ${CHATBOT_ID}"
+          echo "Session:   ${SESSION_ID}"
+          echo "User:      ${USER_HANDLE}"
+          echo "Interface: ${INTERFACE_SOURCE}"
+
+      - name: Validate payload and apply changes
+        id: apply
+        run: python .github/scripts/apply_chatbot_change.py
+
+      - name: Commit, push and open pull request
+        env:
+          BRANCH_NAME: ${{ steps.apply.outputs.branch }}
+          AUTHOR_NAME: ${{ steps.apply.outputs.author_name }}
+          AUTHOR_EMAIL: ${{ steps.apply.outputs.author_email }}
+        run: |
+          set -euo pipefail
+          git config user.name "$AUTHOR_NAME"
+          git config user.email "$AUTHOR_EMAIL"
+
+          git checkout -b "$BRANCH_NAME"
+          git add -- "$FILE_PATH"
+          if git diff --cached --quiet; then
+            echo "No changes to commit."
+            exit 0
+          fi
+          git commit -m "feat: update ${FILE_PATH} via chatbot generation" \
+                     -m "Task: ${TASK_ID}
+          Chatbot: ${CHATBOT_ID}
+          Session: ${SESSION_ID}
+          Requested by: ${USER_HANDLE} (${INTERFACE_SOURCE})"
+          git push origin "$BRANCH_NAME"
+
+          gh pr create \
+            --base "$BASE_BRANCH" \
+            --head "$BRANCH_NAME" \
+            --title "🤖 Chatbot Update: ${TASK_ID}" \
+            --body "Automated changes generated via the chatbot interface.
+
+          - **Task:** ${TASK_ID}
+          - **Description:** ${DESCRIPTION}
+          - **Chatbot:** ${CHATBOT_ID}
+          - **Session:** ${SESSION_ID}
+          - **Requested by:** ${USER_HANDLE} (${INTERFACE_SOURCE})
+          - **File:** \`${FILE_PATH}\`"

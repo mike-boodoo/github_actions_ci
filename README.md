@@ -298,3 +298,27 @@ Before relying on it:
 
 The supplied GitHub Actions test artifact contains `.pytest_cache`, not a
 JUnit test report.
+
+## Chatbot-driven branches and pull requests
+
+`.github/workflows/chatbot-auto-branch.yml` listens for a `repository_dispatch`
+event of type `chatbot-code-update`, writes the supplied file on a new
+`chatbot/feature-<task_id>` branch, commits it (author set from `chatbot_id`
+and `user_handle`), and opens a pull request against the default branch.
+
+Payload (`client_payload`): `task_id`, `file_path`, `file_content`,
+`content_encoding` (`raw` or `base64`), `description`, and optional
+`chatbot_id`, `session_id`, `user_handle`, `interface_source`.
+See `scripts/trigger_chatbot_update.py` for a sender example.
+
+Setup and security notes:
+
+- Send the dispatch with a fine-grained PAT or GitHub App token with
+  `contents: write` on this repo (`POST /repos/{owner}/{repo}/dispatches`).
+- Enable **Settings → Actions → General → Allow GitHub Actions to create and
+  approve pull requests**.
+- PRs opened with `GITHUB_TOKEN` do not trigger other workflows; use a PAT or
+  App token in the workflow if CI must run on these PRs.
+- Payload values are passed through env vars and validated (`task_id` charset,
+  path must stay in the repo and outside `.github/`) to prevent script
+  injection and workflow tampering.

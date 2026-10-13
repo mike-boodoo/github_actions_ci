@@ -1,0 +1,61 @@
+"""Validate a chatbot repository_dispatch payload and write the file.
+
+Reads all input from environment variables (set by the workflow) and emits
+step outputs (branch, author_name, author_email) via $GITHUB_OUTPUT.
+"""
+
+import base64
+import os
+import re
+import sys
+from pathlib import Path
+
+BLOCKED_PREFIXES = (".github/", ".git/")
+TASK_ID_RE = re.compile(r"^[A-Za-z0-9._-]{1,64}$")
+HANDLE_RE = re.compile(r"[^A-Za-z0-9._-]")
+
+
+def fail(msg: str) -> None:
+    print(f"::error::{msg}")
+    sys.exit(1)
+
+
+def main() -> None:
+    task_id = os.environ.get("TASK_ID", "")
+    file_path = os.environ.get("FILE_PATH", "")
+    content = os.environ.get("FILE_CONTENT", "")
+    encoding = os.environ.get("CONTENT_ENCODING", "") or "raw"
+
+    if not TASK_ID_RE.fullmatch(task_id):
+        fail("task_id must match [A-Za-z0-9._-]{1,64}")
+    if not file_path:
+        fail("file_path is required")
+
+    root = Path.cwd().resolve()
+    target = (root / file_path).resolve()
+    if root not in target.parents:
+        fail("file_path must stay inside the repository")
+    rel = target.relative_to(root).as_posix()
+    if rel.startswith(BLOCKED_PREFIXES):
+        fail("chatbot changes to .github/ and .git/ are not allowed")
+
+    if encoding == "base64":
+        data = base64.b64decode(content, validate=True)
+    elif encoding == "raw":
+        data = content.encode()
+    else:
+        fail("content_encoding must be 'raw' or 'base64'")
+
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_bytes(data)
+
+    bot = HANDLE_RE.sub("-", os.environ.get("CHATBOT_ID") or "chatbot")
+    user = HANDLE_RE.sub("-", os.environ.get("USER_HANDLE") or "unknown")
+    with open(os.environ["GITHUB_OUTPUT"], "a") as out:
+        out.write(f"branch=chatbot/feature-{task_id}\n")
+        out.write(f"author_name={bot} (via {user})\n")
+        out.write(f"author_email={bot}@users.noreply.github.com\n")
+
+
+if __name__ == "__main__":
+    main()
